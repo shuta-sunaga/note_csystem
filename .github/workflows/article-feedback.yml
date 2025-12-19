@@ -1,0 +1,149 @@
+name: Article Feedback Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  handle-feedback:
+    name: Handle Feedback Command
+    runs-on: ubuntu-latest
+    # Only run on PR comments (not issue comments)
+    if: github.event.issue.pull_request != null
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Check for commands
+        id: check
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          COMMAND=""
+
+          if echo "$COMMENT" | grep -q "/regenerate"; then
+            COMMAND="regenerate"
+          elif echo "$COMMENT" | grep -q "/shorter"; then
+            COMMAND="shorter"
+          elif echo "$COMMENT" | grep -q "/longer"; then
+            COMMAND="longer"
+          elif echo "$COMMENT" | grep -q "/casual"; then
+            COMMAND="casual"
+          elif echo "$COMMENT" | grep -q "/formal"; then
+            COMMAND="formal"
+          elif echo "$COMMENT" | grep -q "/publish"; then
+            COMMAND="publish"
+          fi
+
+          echo "command=${COMMAND}" >> $GITHUB_OUTPUT
+          echo "Detected command: ${COMMAND}"
+
+      - name: Checkout repository
+        if: steps.check.outputs.command != ''
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        if: steps.check.outputs.command != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.check.outputs.command != ''
+        run: npm ci
+
+      - name: Configure Git
+        if: steps.check.outputs.command != ''
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Add reaction to comment
+        if: steps.check.outputs.command != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'eyes'
+            });
+
+      - name: Handle regenerate/shorter/longer/casual/formal
+        if: steps.check.outputs.command != '' && steps.check.outputs.command != 'publish'
+        env:
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: npm run regenerate
+
+      - name: Handle publish
+        if: steps.check.outputs.command == 'publish'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Get the PR branch
+          PR_DATA=$(gh pr view ${{ github.event.issue.number }} --json headRefName)
+          BRANCH=$(echo $PR_DATA | jq -r '.headRefName')
+
+          git fetch origin $BRANCH
+          git checkout $BRANCH
+
+          # Run publish workflow
+          npm run publish:note
+
+          # Add success reaction
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -X POST -f content='+1'
+
+      - name: Comment on success
+        if: success() && steps.check.outputs.command != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const command = '${{ steps.check.outputs.command }}';
+            let message = '';
+
+            if (command === 'publish') {
+              message = `## ✅ エクスポート完了!
+
+              記事がnote.com用にエクスポートされました。
+              \`exports/\` ディレクトリをご確認ください。`;
+            } else {
+              message = `## 🔄 処理完了!
+
+              コマンド \`/${command}\` を実行しました。
+              変更をご確認ください。`;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.issue.number }},
+              body: message
+            });
+
+      - name: Add success reaction
+        if: success() && steps.check.outputs.command != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ github.event.comment.id }},
+              content: 'rocket'
+            });

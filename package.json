@@ -1,22 +1,29 @@
 {
   "name": "note_csystem",
   "version": "0.1.0",
-  "description": "Autonomous development powered by Agentic OS",
+  "description": "note記事自動生成&自動投稿システム - Powered by Miyabi",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "test": "vitest",
     "lint": "eslint . --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate": "tsx src/workflows/generate-article.ts",
+    "regenerate": "tsx src/workflows/regenerate-article.ts",
+    "publish:note": "tsx src/workflows/publish-to-note.ts"
   },
   "keywords": [
-    "agentic-os",
-    "autonomous"
+    "note",
+    "article-generator",
+    "ai-agent",
+    "miyabi"
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
